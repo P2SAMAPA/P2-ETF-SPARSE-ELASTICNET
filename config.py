@@ -17,18 +17,15 @@ UNIVERSES = {
     ]
 }
 
-# Rolling windows: train on 252 days, forecast horizon 21 days
+# Rolling windows
 TRAIN_WINDOW = 252
 FORECAST_HORIZON = 21
 
-# Elastic net mixing parameter: α (1 = Lasso, 0 = Ridge)
+# Elastic net mixing parameter
 ELASTIC_NET_ALPHA = 0.5
-
-# Use BIC for lambda selection (True) or CV (False)
 USE_BIC = True
 
-# Ranking: top N by predicted return
 TOP_N = 3
 
-# Factors to compute (will be derived from data)
-# We'll compute these dynamically: market beta, size, value, momentum, volatility, macro betas
+# Macro columns (must exist in master_data.parquet)
+MACRO_COLUMNS = ["VIX", "DXY", "T10Y2Y", "TBILL_3M", "IG_SPREAD", "HY_SPREAD"]
