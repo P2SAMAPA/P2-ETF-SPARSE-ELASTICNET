@@ -17,12 +17,6 @@ def main():
     all_results = {}
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Define factor proxy returns (using ETFs from the dataset)
-    # We assume SPY, IWM, IWD, IWF exist. They are in EQUITY_SECTORS and COMBINED.
-    # For FI_COMMODITIES, these may not exist, so we need to handle missing.
-    # We'll compute factors for each universe separately using only ETFs available in that universe.
-    # But SMB/HML require specific ETFs. Simpler: For universes lacking these, we skip those factors.
-    # We'll implement a robust version: if SPY not in universe, use first ETF as market proxy.
     for universe_name, tickers in config.UNIVERSES.items():
         print(f"\n=== Universe: {universe_name} ===")
         returns = data_manager.prepare_returns_matrix(df, tickers)
@@ -32,22 +26,23 @@ def main():
             continue
 
         # Create market, size, value proxies from available ETFs
-        # If SPY in tickers, use it; else use first ticker as market
+        # Market: SPY if available, else first ETF
         market_proxy = 'SPY' if 'SPY' in tickers else tickers[0]
         market_returns = returns[market_proxy]
-        # SMB: small minus big – use IWM (small cap) vs SPY. If not available, use return spread of 2nd and 1st?
+        # SMB: small minus big – use IWM vs SPY if both exist
         if 'IWM' in tickers and market_proxy != 'IWM':
             smb_returns = returns['IWM'] - market_returns
         else:
             smb_returns = pd.Series(0, index=returns.index)
-        # HML: value minus growth – use IWD (value) vs IWF (growth)
+        # HML: value minus growth – use IWD vs IWF if both exist
         if 'IWD' in tickers and 'IWF' in tickers:
             hml_returns = returns['IWD'] - returns['IWF']
         else:
             hml_returns = pd.Series(0, index=returns.index)
 
-        # Macro data: use levels (we'll diff inside factor_exposures)
-        macro_df = df[config.MACRO_COLUMNS] if all(c in df.columns for c in config.MACRO_COLUMNS) else pd.DataFrame(index=df.index)
+        # Macro data: use only columns that exist in the dataset
+        available_macro = [c for c in config.MACRO_COLUMNS if c in df.columns]
+        macro_df = df[available_macro] if available_macro else pd.DataFrame(index=df.index)
 
         # Compute factor exposures for all ETFs in this universe
         factor_exp = compute_factor_exposures(returns, market_returns, smb_returns, hml_returns, macro_df, window=60)
@@ -74,13 +69,11 @@ def main():
             print("  No predictions")
             continue
 
-        # For the most recent date, get predictions (latest predictions from the last walk‑forward step)
+        # For the most recent date, get predictions
         latest_date = predictions_df['date'].max()
         latest_preds = predictions_df[predictions_df['date'] == latest_date]
-        # Sort by predicted return descending
         latest_preds = latest_preds.sort_values('predicted_return', ascending=False)
         top3 = latest_preds.head(config.TOP_N)
-        # Build output
         top_etfs = []
         for _, row in top3.iterrows():
             top_etfs.append({
@@ -96,6 +89,7 @@ def main():
             "run_date": today
         }
 
+    # Save results
     Path("results").mkdir(exist_ok=True)
     local_path = Path(f"results/sparse_elasticnet_{today}.json")
     with open(local_path, "w") as f:
