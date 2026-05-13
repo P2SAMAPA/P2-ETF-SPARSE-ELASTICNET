@@ -20,56 +20,46 @@ def main():
     for universe_name, tickers in config.UNIVERSES.items():
         print(f"\n=== Universe: {universe_name} ===")
         returns = data_manager.prepare_returns_matrix(df, tickers)
-        if returns.empty or len(returns) < config.TRAIN_WINDOW + config.FORECAST_HORIZON + 10:
+        if returns.empty or len(returns) < config.TRAIN_WINDOW + config.FORECAST_HORIZON + 60:
             print("  Insufficient data")
             all_results[universe_name] = {"top_etfs": []}
             continue
 
-        # Create market, size, value proxies from available ETFs
-        # Market: SPY if available, else first ETF
+        # Market proxy: use SPY if available, else first ETF in universe
         market_proxy = 'SPY' if 'SPY' in tickers else tickers[0]
         market_returns = returns[market_proxy]
-        # SMB: small minus big – use IWM vs SPY if both exist
-        if 'IWM' in tickers and market_proxy != 'IWM':
-            smb_returns = returns['IWM'] - market_returns
-        else:
-            smb_returns = pd.Series(0, index=returns.index)
-        # HML: value minus growth – use IWD vs IWF if both exist
-        if 'IWD' in tickers and 'IWF' in tickers:
-            hml_returns = returns['IWD'] - returns['IWF']
-        else:
-            hml_returns = pd.Series(0, index=returns.index)
 
-        # Macro data: use only columns that exist in the dataset
+        # Macro data: use only columns that exist
         available_macro = [c for c in config.MACRO_COLUMNS if c in df.columns]
         macro_df = df[available_macro] if available_macro else pd.DataFrame(index=df.index)
 
-        # Compute factor exposures for all ETFs in this universe
-        factor_exp = compute_factor_exposures(returns, market_returns, smb_returns, hml_returns, macro_df, window=60)
-        # Compute forward returns (21d)
+        # Compute factor exposures (simplified)
+        factor_exp = compute_factor_exposures(returns, market_returns, macro_df, window=60)
+        # Compute forward returns (21-day)
         forward_ret = compute_forward_returns(returns, horizon=config.FORECAST_HORIZON)
         # Align indices
-        forward_ret_long = forward_ret.stack().rename('forward_return')
-        forward_ret_long.index.names = ['date', 'ETF']
-        # Merge
-        merged = factor_exp.join(forward_ret_long, how='inner').dropna()
+        forward_long = forward_ret.stack().rename('forward_return')
+        forward_long.index.names = ['date', 'ETF']
+        merged = factor_exp.join(forward_long, how='inner').dropna()
         if merged.empty:
-            print("  No valid factor exposures")
+            print("  No valid factor exposures (merged empty)")
+            # Print some diagnostics
+            print(f"  factor_exp shape: {factor_exp.shape}, forward shape: {forward_long.shape}")
             continue
 
         # Walk‑forward predictions
         predictions_df = walk_forward_predictions(
-            merged.drop(columns='forward_return'), 
+            merged.drop(columns='forward_return'),
             merged['forward_return'],
             train_window=config.TRAIN_WINDOW,
             forecast_horizon=config.FORECAST_HORIZON,
             alpha=config.ELASTIC_NET_ALPHA
         )
         if predictions_df.empty:
-            print("  No predictions")
+            print("  No predictions generated")
             continue
 
-        # For the most recent date, get predictions
+        # Most recent prediction day
         latest_date = predictions_df['date'].max()
         latest_preds = predictions_df[predictions_df['date'] == latest_date]
         latest_preds = latest_preds.sort_values('predicted_return', ascending=False)
