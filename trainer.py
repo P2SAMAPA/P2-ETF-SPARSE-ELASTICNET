@@ -25,7 +25,7 @@ def main():
             all_results[universe_name] = {"top_etfs": []}
             continue
 
-        # Market proxy: use SPY if available, else first ETF in universe
+        # Market proxy: use SPY if available, else first ETF
         market_proxy = 'SPY' if 'SPY' in tickers else tickers[0]
         market_returns = returns[market_proxy]
 
@@ -33,18 +33,16 @@ def main():
         available_macro = [c for c in config.MACRO_COLUMNS if c in df.columns]
         macro_df = df[available_macro] if available_macro else pd.DataFrame(index=df.index)
 
-        # Compute factor exposures (simplified)
+        # Compute factor exposures
         factor_exp = compute_factor_exposures(returns, market_returns, macro_df, window=60)
-        # Compute forward returns (21-day)
+        # Forward returns (21‑day)
         forward_ret = compute_forward_returns(returns, horizon=config.FORECAST_HORIZON)
-        # Align indices
+        # Align
         forward_long = forward_ret.stack().rename('forward_return')
         forward_long.index.names = ['date', 'ETF']
         merged = factor_exp.join(forward_long, how='inner').dropna()
         if merged.empty:
-            print("  No valid factor exposures (merged empty)")
-            # Print some diagnostics
-            print(f"  factor_exp shape: {factor_exp.shape}, forward shape: {forward_long.shape}")
+            print("  No valid factor exposures")
             continue
 
         # Walk‑forward predictions
@@ -59,11 +57,20 @@ def main():
             print("  No predictions generated")
             continue
 
-        # Most recent prediction day
+        # Most recent prediction date
         latest_date = predictions_df['date'].max()
         latest_preds = predictions_df[predictions_df['date'] == latest_date]
+
+        # Deduplicate by ETF: keep the highest predicted return per ETF
+        latest_preds = latest_preds.groupby('ETF').agg({
+            'predicted_return': 'max',
+            'non_zero_coeffs': 'first'
+        }).reset_index()
+
+        # Sort and take top N
         latest_preds = latest_preds.sort_values('predicted_return', ascending=False)
         top3 = latest_preds.head(config.TOP_N)
+
         top_etfs = []
         for _, row in top3.iterrows():
             top_etfs.append({
