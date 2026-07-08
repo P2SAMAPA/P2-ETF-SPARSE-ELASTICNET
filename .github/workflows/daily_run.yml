@@ -2,7 +2,7 @@ name: Daily Sparse Elastic Net Run
 
 on:
   schedule:
-    - cron: '10 00 * * 1-6'
+    - cron: '50 23 * * 1-6'
   workflow_dispatch:
 
 jobs:
